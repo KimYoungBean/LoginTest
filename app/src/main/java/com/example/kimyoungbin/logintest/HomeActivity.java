@@ -1,8 +1,10 @@
 package com.example.kimyoungbin.logintest;
 
 import android.Manifest;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -15,6 +17,7 @@ import android.support.v4.content.CursorLoader;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
 import android.support.v7.app.ActionBarDrawerToggle;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.Menu;
@@ -24,12 +27,17 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.facebook.login.LoginManager;
+import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig;
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
 import com.google.firebase.storage.UploadTask;
@@ -50,14 +58,17 @@ public class HomeActivity extends AppCompatActivity
     private EditText description;
     private Button button;
     private String imagePath;
+    private EditText error;
+    private Toolbar toolbar;
 
 
+    private FirebaseRemoteConfig mFirebaseRemoteConfig;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
-        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        toolbar = (Toolbar) findViewById(R.id.toolbar);
         auth = FirebaseAuth.getInstance();
         storage = FirebaseStorage.getInstance();
         database = FirebaseDatabase.getInstance();
@@ -80,8 +91,9 @@ public class HomeActivity extends AppCompatActivity
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
+//                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
+//                        .setAction("Action", null).show();
+                error.setText("error");
             }
         });
 
@@ -114,7 +126,56 @@ public class HomeActivity extends AppCompatActivity
 
             }
         });
+        remoteConfig();
+    }
 
+    private void remoteConfig(){
+        mFirebaseRemoteConfig = FirebaseRemoteConfig.getInstance();
+
+        /*디버깅 테스트할 때 사용*/
+        FirebaseRemoteConfigSettings configSettings = new FirebaseRemoteConfigSettings.Builder()
+                .setDeveloperModeEnabled(BuildConfig.DEBUG)
+                .build();
+        mFirebaseRemoteConfig.setConfigSettings(configSettings);
+        /*서버에 매칭되는 값이 없을 때 참*/
+        mFirebaseRemoteConfig.setDefaults(R.xml.remote_config_defaults);
+
+        mFirebaseRemoteConfig.fetch(0)
+                .addOnCompleteListener(this, new OnCompleteListener<Void>() {
+                    @Override
+                    public void onComplete(@NonNull Task<Void> task) {
+                        if (task.isSuccessful()) {
+                            Toast.makeText(HomeActivity.this, "Fetch Succeeded",
+                                    Toast.LENGTH_SHORT).show();
+
+                            // After config data is successfully fetched, it must be activated before newly fetched
+                            // values are returned.
+                            mFirebaseRemoteConfig.activateFetched();
+                        } else {
+                            Toast.makeText(HomeActivity.this, "Fetch Failed",
+                                    Toast.LENGTH_SHORT).show();
+                        }
+                        displayWelcomeMessage();
+                    }
+                });
+    }
+
+    private void displayWelcomeMessage(){
+        String toolbarColor = mFirebaseRemoteConfig.getString("toolBarColor");
+        Boolean aBoolean = mFirebaseRemoteConfig.getBoolean("welcome_message_caps");
+        String message = mFirebaseRemoteConfig.getString("welcome_message");
+
+        toolbar.setBackgroundColor(Color.parseColor(toolbarColor));
+        if(aBoolean){
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setMessage(message).setPositiveButton("확인", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    HomeActivity.this.finish();
+                }
+            });
+            builder.create().show();
+        }
     }
 
     @Override
@@ -227,7 +288,7 @@ public class HomeActivity extends AppCompatActivity
         StorageReference storageRef = storage.getReferenceFromUrl("gs://logintest-6ab12.appspot.com");
 
 
-        Uri file = Uri.fromFile(new File(uri));
+        final Uri file = Uri.fromFile(new File(uri));
         StorageReference riversRef = storageRef.child("images/"+file.getLastPathSegment());
         UploadTask uploadTask = riversRef.putFile(file);
 
@@ -247,6 +308,7 @@ public class HomeActivity extends AppCompatActivity
 
                 ImageDTO imageDTO = new ImageDTO();
                 imageDTO.imageUrl = downloadUrl.toString();
+                imageDTO.imageUrl = file.getLastPathSegment();
                 imageDTO.title = title.getText().toString();
                 imageDTO.description = description.getText().toString();
                 imageDTO.uid = auth.getCurrentUser().getUid();
